@@ -1,6 +1,6 @@
 import streamlit as st
 import fitz  # PyMuPDF
-from transformers import MBartForConditionalGeneration, MBart50TokenizerFast
+from transformers import MarianMTModel, MarianTokenizer
 from fpdf import FPDF
 import os
 
@@ -9,11 +9,12 @@ import os
 @st.cache_resource
 def load_model():
     """Loads and caches the translation model and tokenizer."""
-    model = MBartForConditionalGeneration.from_pretrained("facebook/mbart-large-50-many-to-many-mmt")
-    tokenizer = MBart50TokenizerFast.from_pretrained("facebook/mbart-large-50-many-to-many-mmt")
+    model_name = "Helsinki-NLP/opus-mt-fr-en"
+    tokenizer = MarianTokenizer.from_pretrained(model_name)
+    model = MarianMTModel.from_pretrained(model_name)
     return model, tokenizer
 
-# --- Core Functions (from your original script) ---
+# --- Core Functions ---
 def extract_text_from_pdf(pdf_file):
     """Extracts text from an uploaded PDF file."""
     text = ""
@@ -23,27 +24,27 @@ def extract_text_from_pdf(pdf_file):
     return text
 
 def translate_french_to_english(text, model, tokenizer):
-    """Translates French text to English."""
-    tokenizer.src_lang = "fr_XX"
-    encoded_french = tokenizer(text, return_tensors="pt", max_length=1024, truncation=True)
-    generated_tokens = model.generate(
-        **encoded_french,
-        forced_bos_token_id=tokenizer.lang_code_to_id["en_XX"]
-    )
-    translated_text = tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)
-    return translated_text[0]
+    """Translates French text to English using the Helsinki-NLP model."""
+    # Split the text into manageable chunks to avoid overwhelming the model
+    chunks = [text[i:i + 512] for i in range(0, len(text), 512)]
+    translated_chunks = []
+    
+    for chunk in chunks:
+        # Translate each chunk
+        translated = model.generate(**tokenizer(chunk, return_tensors="pt", padding=True))
+        translated_text = tokenizer.decode(translated[0], skip_special_tokens=True)
+        translated_chunks.append(translated_text)
+        
+    return " ".join(translated_chunks)
 
 def create_pdf_with_text(text):
     """Creates a PDF file in memory from the translated text."""
     pdf = FPDF()
     pdf.add_page()
-    # Add a font that supports a wide range of characters (DejaVu is a good choice)
-    # You'll need to provide the font file for this to work in a deployed environment.
     try:
         pdf.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
         pdf.set_font("DejaVu", size=12)
     except RuntimeError:
-        # Fallback to a standard font if DejaVu is not found
         st.warning("DejaVu font not found. Falling back to Arial. Special characters may not render correctly.")
         pdf.set_font("Arial", size=12)
 
@@ -52,10 +53,11 @@ def create_pdf_with_text(text):
 
 # --- Streamlit App Interface ---
 st.title("🇫🇷 French to 🇬🇧 English PDF Translator")
-st.write("Upload a PDF file in French, and this app will translate it into English for you using a Large Language Model.")
+st.write("Upload a PDF file in French, and this app will translate it into English using a specialized language model.")
 
 # Load the model and tokenizer
-model, tokenizer = load_model()
+with st.spinner("Loading translation model..."):
+    model, tokenizer = load_model()
 
 # File uploader widget
 uploaded_file = st.file_uploader("Choose a French PDF file", type="pdf")
@@ -64,7 +66,7 @@ if uploaded_file is not None:
     # Button to start the translation
     if st.button("Translate PDF"):
         with st.spinner("Translating... This may take a moment."):
-            # Step 1: Extract text from the uploaded PDF
+            # Step 1: Extract text
             french_text = extract_text_from_pdf(uploaded_file)
             st.write("### Original French Text (First 500 characters)")
             st.text_area("", french_text[:500], height=150)
@@ -74,10 +76,10 @@ if uploaded_file is not None:
             st.write("### Translated English Text")
             st.text_area("", english_text, height=250)
 
-            # Step 3: Create the translated PDF in memory
+            # Step 3: Create the translated PDF
             pdf_output = create_pdf_with_text(english_text)
 
-            # Step 4: Provide a download button for the translated PDF
+            # Step 4: Provide a download button
             st.download_button(
                 label="Download Translated PDF",
                 data=pdf_output,
@@ -85,4 +87,4 @@ if uploaded_file is not None:
                 mime="application/pdf"
             )
 
-st.info("Note: The translation quality depends on the underlying model. Large and complex PDFs may take longer to process.")
+st.info("This app uses the Helsinki-NLP model for translation.")
