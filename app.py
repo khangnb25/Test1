@@ -85,4 +85,4 @@ if uploaded_file is not None:
                 mime="application/pdf"
             )
 
-st.info("Note: The translation quality depends on the underlying model. Large and complex PDFs may take longer to process.")```
+st.info("Note: The translation quality depends on the underlying model. Large and complex PDFs may take longer to process.")
